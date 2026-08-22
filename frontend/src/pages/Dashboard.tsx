@@ -1,17 +1,33 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { api, ApiError } from "../api";
 import { 
   Play, 
   Layers, 
   RefreshCw, 
-  Clock, 
-  Terminal as TermIcon, 
   Network, 
   Cpu, 
   Laptop, 
   Smartphone,
-  CheckCircle,
-  AlertCircle
+  Monitor,
+  MonitorOff,
+  ShieldAlert,
+  Cloud,
+  Database,
+  Printer,
+  Camera,
+  RotateCw,
+  Search,
+  Bell,
+  ChevronDown,
+  Calendar,
+  Plus,
+  Minus,
+  Maximize,
+  Download,
+  User,
+  Menu,
+  Sun,
+  Moon
 } from "lucide-react";
 
 const parseUtcDate = (dateStr: string) => {
@@ -27,6 +43,9 @@ const getDeviceIcon = (dev: any) => {
   if (dev.ip_address.endsWith(".1")) return Network;
   if (name.includes("desktop") || name.includes("pc") || name.includes("laptop")) return Laptop;
   if (vendor.includes("samsung") || vendor.includes("huawei") || vendor.includes("apple") || name.includes("phone")) return Smartphone;
+  if (name.includes("printer") || vendor.includes("hewlett")) return Printer;
+  if (name.includes("camera") || name.includes("cam") || vendor.includes("hikvision")) return Camera;
+  if (name.includes("nas") || name.includes("server") || name.includes("synology")) return Database;
   return Cpu;
 };
 
@@ -37,12 +56,11 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = () => {
   const [devices, setDevices] = useState<any[]>([]);
   const [scans, setScans] = useState<any[]>([]);
-  const [subnet, setSubnet] = useState<string>("");
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
-  const logTimerRef = useRef<any[]>([]);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
+  const subnet = "";
 
   const fetchDashboardData = async () => {
     try {
@@ -58,19 +76,21 @@ export const Dashboard: React.FC<DashboardProps> = () => {
 
   useEffect(() => {
     fetchDashboardData();
-    // Default logs on mount
-    setConsoleLogs([
-      "System initialized. Standing by for discovery triggers...",
-      "Interface configured: 192.168.31.39 / Subnet: 192.168.31.0/24"
-    ]);
   }, []);
 
-  const addConsoleLog = (msg: string) => {
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setConsoleLogs(prev => [...prev, `[${time}] ${msg}`]);
+  const handleToggleTheme = () => {
+    const nextDark = !isDark;
+    setIsDark(nextDark);
+    if (nextDark) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
   };
 
-  // Poll scan state when scan is running in background
+  // Poll scan state when scan is running
   useEffect(() => {
     let intervalId: any;
     if (isScanning) {
@@ -80,7 +100,6 @@ export const Dashboard: React.FC<DashboardProps> = () => {
           if (freshScans.length > scans.length || (freshScans[0] && freshScans[0].duration > 0)) {
             setIsScanning(false);
             setScanMessage("Scan completed successfully!");
-            addConsoleLog(`[SUCCESS] Scan execution complete. Discovered ${devices.length} network assets.`);
             fetchDashboardData();
             clearInterval(intervalId);
           }
@@ -93,44 +112,17 @@ export const Dashboard: React.FC<DashboardProps> = () => {
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isScanning, scans, devices]);
+  }, [isScanning, scans]);
 
   const handleStartScan = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setScanMessage(null);
     setIsScanning(true);
-    setConsoleLogs([]);
 
-    // Clear old logs timers
-    logTimerRef.current.forEach(clearTimeout);
-    logTimerRef.current = [];
-
-    // Trigger backend scan
     try {
       await api.triggerScan(subnet);
       setScanMessage("Subnet scan successfully queued in the background...");
-      
-      // Seed simulated live terminal logs to represent progress
-      const logsTimeline = [
-        { delay: 100, msg: "Configuring background task context..." },
-        { delay: 1200, msg: "Locating gateway interface (192.168.31.1)..." },
-        { delay: 2500, msg: "Resolving subnet network block..." },
-        { delay: 4200, msg: "Sweeping network block using multi-threaded ICMP Echo requests..." },
-        { delay: 9000, msg: "Reading system ARP table cache..." },
-        { delay: 12000, msg: "Parsing active hardware MAC address records..." },
-        { delay: 15000, msg: "Resolving vendor OUI database definitions..." },
-        { delay: 18000, msg: "Querying reverse DNS hostnames..." },
-        { delay: 20500, msg: "Finalizing asset mapping transaction records..." },
-      ];
-
-      logsTimeline.forEach((item) => {
-        const timer = setTimeout(() => {
-          addConsoleLog(item.msg);
-        }, item.delay);
-        logTimerRef.current.push(timer);
-      });
-
     } catch (err) {
       setIsScanning(false);
       if (err instanceof ApiError) {
@@ -141,322 +133,676 @@ export const Dashboard: React.FC<DashboardProps> = () => {
     }
   };
 
-  useEffect(() => {
-    return () => {
-      logTimerRef.current.forEach(clearTimeout);
-    };
-  }, []);
 
-  const lastScan = scans[0];
-  const lastScanTime = parseUtcDate(lastScan?.scan_time);
-  const lastScanTimeStr = lastScanTime 
-    ? lastScanTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) 
-    : "Never";
+  // Mapped Topology logic - Dynamic Hierarchical Tree
+  const gateway = devices.find(d => d.ip_address.endsWith(".1")) || devices[0];
+  const clients = devices.filter(d => d.id !== gateway?.id);
+  
+  // Distribute clients into two local switches for visualization layout
+  const leftSwitchClients = clients.filter((_, idx) => idx % 2 === 0);
+  const rightSwitchClients = clients.filter((_, idx) => idx % 2 !== 0);
+
+  const getLeftClientX = (idx: number, total: number) => {
+    if (total === 1) return 30;
+    const startX = 12;
+    const endX = 44;
+    return startX + (idx / (total - 1)) * (endX - startX);
+  };
+
+  const getRightClientX = (idx: number, total: number) => {
+    if (total === 1) return 70;
+    const startX = 56;
+    const endX = 88;
+    return startX + (idx / (total - 1)) * (endX - startX);
+  };
+
+  // Device type categorizer for Doughnut Chart
+  const categorizeDevices = () => {
+    let stats = { workstations: 0, mobile: 0, server: 0, iot: 0, network: 1 };
+    devices.forEach(d => {
+      if (d.ip_address.endsWith(".1")) return;
+      const name = d.hostname.toLowerCase();
+      const vendor = d.vendor.toLowerCase();
+
+      if (name.includes("desktop") || name.includes("pc") || name.includes("laptop")) {
+        stats.workstations += 1;
+      } else if (vendor.includes("samsung") || vendor.includes("huawei") || vendor.includes("apple") || name.includes("phone")) {
+        stats.mobile += 1;
+      } else if (name.includes("nas") || name.includes("server") || name.includes("synology")) {
+        stats.server += 1;
+      } else if (name.includes("printer") || name.includes("camera") || name.includes("cam") || name.includes("pi")) {
+        stats.iot += 1;
+      } else {
+        stats.workstations += 1; // Default
+      }
+    });
+    return stats;
+  };
+
+  const devStats = categorizeDevices();
+  const totalCount = devices.length || 5;
 
   return (
-    <div className="space-y-8 cyber-grid min-h-screen pb-12">
-      {/* Glow Bubbles */}
-      <div className="glow-bubble top-10 left-10 w-96 h-96 bg-indigo-500/10"></div>
-      <div className="glow-bubble bottom-10 right-10 w-96 h-96 bg-purple-500/5"></div>
+    <div className="space-y-6 min-h-screen pb-12 transition-colors duration-300">
+      
+      {/* 1. Header Top Bar */}
+      <div className="glass-panel py-3 px-6 flex items-center justify-between gap-4 z-20 relative">
+        <div className="flex items-center gap-3 flex-1">
+          <button className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400">
+            <Menu className="w-5 h-5" />
+          </button>
+          
+          {/* Mapped Search bar */}
+          <div className="relative w-full max-w-md hidden md:block">
+            <input
+              type="text"
+              placeholder="Search devices, IPs, MAC addresses..."
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl py-2 px-4 pl-10 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+          </div>
+        </div>
 
-      {/* Header Panel */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative z-10">
-        <div>
-          <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400">
-              NetGraph Dashboard
+        <div className="flex items-center gap-4">
+          {/* Dynamic Light/Dark Mode Switcher */}
+          <button 
+            onClick={handleToggleTheme}
+            className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+            title="Toggle Theme"
+          >
+            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
+          </button>
+
+          {/* Alerts notification icon */}
+          <div className="relative cursor-pointer p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400">
+            <Bell className="w-5 h-5" />
+            <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+              5
             </span>
+          </div>
+
+          {/* Profile Card */}
+          <div className="flex items-center gap-2.5 border-l border-slate-200 dark:border-slate-800 pl-4">
+            <div className="w-8 h-8 rounded-full bg-indigo-500/10 border border-indigo-500 flex items-center justify-center text-indigo-500 dark:text-indigo-400">
+              <User className="w-4 h-4" />
+            </div>
+            <div className="hidden lg:block text-left">
+              <span className="font-semibold text-slate-800 dark:text-slate-100 text-xs block truncate max-w-[80px]">
+                admin
+              </span>
+              <span className="text-[9px] text-slate-400 block font-medium">
+                Administrator
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Overview Title Row */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
+        <div>
+          <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            Dashboard
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-            Visual intelligence console for local subnet monitoring.
+          <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
+            Overview of your network
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 text-slate-700 dark:text-slate-300 text-glow-emerald border-glow-emerald">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-          Gateway Active • {lastScan?.subnet || "192.168.31.0/24"}
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 text-slate-700 dark:text-slate-300">
+            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+            <span>Last 24 Hours</span>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+          </div>
+
+          <button 
+            onClick={fetchDashboardData}
+            className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+          >
+            <RotateCw className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      {/* Primary Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 relative z-10">
-        {[
-          { title: "Active Devices", value: devices.length, icon: Network, color: "from-indigo-500 to-cyan-500", glow: "indigo" },
-          { title: "Target Subnet", value: lastScan?.subnet || "192.168.31.0/24", icon: Layers, color: "from-purple-500 to-pink-500", glow: "purple", isSmall: true },
-          { title: "Last Scan Time", value: lastScanTimeStr, icon: Clock, color: "from-emerald-500 to-teal-500", glow: "emerald" },
-          { title: "Duration", value: lastScan ? `${lastScan.duration}s` : "N/A", icon: RefreshCw, color: "from-amber-500 to-orange-500", glow: "amber", spin: isScanning }
-        ].map((m, idx) => (
-          <div key={idx} className="glass-panel p-6 flex items-center justify-between relative overflow-hidden group">
-            <div className={`absolute inset-0 bg-gradient-to-r ${m.color} opacity-0 group-hover:opacity-[0.02] transition-opacity duration-300`}></div>
-            <div>
-              <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
-                {m.title}
+      {/* 3. Primary Metrics Grid (5 Cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        
+        {/* Card 1: Online */}
+        <div className="glass-panel p-5 flex items-center justify-between relative overflow-hidden group">
+          <div className="space-y-1">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
+              Devices Online
+            </span>
+            <span className="text-2xl font-extrabold text-slate-900 dark:text-white block">
+              {devices.length}
+            </span>
+            <span className="text-[10px] font-semibold text-emerald-500 block">
+              ↑ 3 <span className="text-slate-400 font-normal">(vs yesterday)</span>
+            </span>
+          </div>
+          <div className="w-10 h-10 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-500">
+            <Monitor className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* Card 2: Offline */}
+        <div className="glass-panel p-5 flex items-center justify-between relative overflow-hidden group">
+          <div className="space-y-1">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
+              Devices Offline
+            </span>
+            <span className="text-2xl font-extrabold text-slate-900 dark:text-white block">
+              5
+            </span>
+            <span className="text-[10px] font-semibold text-red-500 block">
+              ↓ 2 <span className="text-slate-400 font-normal">(vs yesterday)</span>
+            </span>
+          </div>
+          <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400">
+            <MonitorOff className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* Card 3: Open Ports */}
+        <div className="glass-panel p-5 flex items-center justify-between relative overflow-hidden group">
+          <div className="space-y-1">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
+              Total Open Ports
+            </span>
+            <span className="text-2xl font-extrabold text-slate-900 dark:text-white block">
+              187
+            </span>
+            <span className="text-[10px] font-semibold text-emerald-500 block">
+              ↑ 12 <span className="text-slate-400 font-normal">(vs yesterday)</span>
+            </span>
+          </div>
+          <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500">
+            <Network className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* Card 4: Alerts */}
+        <div className="glass-panel p-5 flex items-center justify-between relative overflow-hidden group">
+          <div className="space-y-1">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
+              Critical Alerts
+            </span>
+            <span className="text-2xl font-extrabold text-slate-900 dark:text-white block">
+              8
+            </span>
+            <span className="text-[10px] font-semibold text-red-500 block">
+              ↓ 3 <span className="text-slate-400 font-normal">(vs yesterday)</span>
+            </span>
+          </div>
+          <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
+            <ShieldAlert className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* Card 5: Risk Score with SVG Dial */}
+        <div className="glass-panel p-5 flex items-center justify-between relative overflow-hidden group">
+          <div className="space-y-1">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
+              Risk Score
+            </span>
+            <div className="flex items-center gap-1.5 mt-2">
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-amber-500/10 text-amber-500 uppercase">
+                Medium Risk
               </span>
-              <span className={`${m.isSmall ? 'text-lg font-bold' : 'text-3xl font-extrabold'} text-slate-900 dark:text-white mt-2 block tracking-tight`}>
-                {m.value}
-              </span>
-            </div>
-            <div className={`w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-250 dark:border-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-white transition-colors`}>
-              <m.icon className={`w-6 h-6 ${m.spin ? 'animate-spin' : ''}`} />
             </div>
           </div>
-        ))}
+          
+          {/* Progress Ring Dial */}
+          <div className="relative w-14 h-14 flex items-center justify-center">
+            <svg className="w-full h-full transform -rotate-90">
+              <circle
+                cx="28"
+                cy="28"
+                r="22"
+                stroke="rgba(99, 102, 241, 0.1)"
+                strokeWidth="4"
+                fill="transparent"
+              />
+              <circle
+                cx="28"
+                cy="28"
+                r="22"
+                stroke="url(#riskGradient)"
+                strokeWidth="4"
+                fill="transparent"
+                strokeDasharray="138"
+                strokeDashoffset="38" // (138 * (1 - 72/100)) = ~38
+                className="transition-all duration-1000"
+              />
+              <defs>
+                <linearGradient id="riskGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#6366f1" />
+                  <stop offset="100%" stopColor="#a855f7" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <div className="absolute text-center">
+              <span className="text-xs font-bold text-slate-900 dark:text-white block leading-none">
+                72
+              </span>
+              <span className="text-[8px] text-slate-400 block mt-0.5 leading-none">
+                /100
+              </span>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      {/* Main interactive panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
+      {/* 4. Middle Section: Topology & Alerts (2 Columns) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Left: Scan control and Radar */}
-        <div className="lg:col-span-2 space-y-8">
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Scan triggers */}
-            <div className="glass-panel p-6 flex flex-col justify-between">
+        {/* Network Topology Tree Canvas (65% width equivalent) */}
+        <div className="lg:col-span-2 glass-panel p-6 flex flex-col justify-between min-h-[420px]">
+          <div>
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
-                  <Play className="w-5 h-5 text-indigo-500 dark:text-indigo-400 fill-current" />
-                  Trigger Network Discovery
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Network className="w-4 h-4 text-indigo-500" />
+                  Network Topology
                 </h3>
-                <p className="text-slate-500 dark:text-slate-400 text-xs mb-6">
-                  Initiate a fast, concurrent IP scan. Leave blank to auto-detect your local Wi-Fi interface variables.
-                </p>
-                
-                {scanMessage && (
-                  <div className="mb-4 p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                    {scanMessage}
-                  </div>
-                )}
-                {errorMessage && (
-                  <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                    {errorMessage}
-                  </div>
-                )}
               </div>
-
-              <form onSubmit={handleStartScan} className="space-y-4">
-                <input
-                  type="text"
-                  value={subnet}
-                  onChange={(e) => setSubnet(e.target.value)}
-                  placeholder="e.g., 192.168.31.0/24 (optional)"
-                  disabled={isScanning}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl py-3 px-4 text-slate-900 dark:text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
-                />
-                <button
-                  type="submit"
-                  disabled={isScanning}
-                  className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 disabled:opacity-50 transition-all active:scale-[0.98]"
-                >
-                  {isScanning ? (
-                    <>
-                      <RefreshCw className="w-5 h-5 animate-spin" />
-                      Performing Scan...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-5 h-5 fill-current" />
-                      Scan Subnet
-                    </>
-                  )}
-                </button>
-              </form>
-            </div>
-
-            {/* Visual Radar Pane */}
-            <div className="glass-panel p-6 flex flex-col items-center justify-center relative overflow-hidden h-72">
-              <div className="absolute inset-0 bg-slate-100/30 dark:bg-slate-950/20"></div>
               
-              {/* Radar rings */}
-              <div className="relative w-48 h-48 border border-indigo-500/15 rounded-full flex items-center justify-center">
-                <div className="w-36 h-36 border border-indigo-500/20 rounded-full flex items-center justify-center">
-                  <div className="w-24 h-24 border border-indigo-500/30 rounded-full flex items-center justify-center">
-                    <div className="w-12 h-12 border border-indigo-500/40 rounded-full flex items-center justify-center">
-                      <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full text-glow-indigo"></div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Radar Sweep Line */}
-                {isScanning && (
-                  <div className="absolute inset-0 rounded-full overflow-hidden animate-radar-spin">
-                    <div className="w-1/2 h-1/2 bg-gradient-to-tr from-transparent to-indigo-500/30 border-r border-indigo-400 origin-bottom-right absolute bottom-1/2 right-1/2"></div>
-                  </div>
-                )}
-
-                {/* Glowing mock nodes flashing on sweep */}
-                <div className="absolute top-1/4 left-1/4 w-2 h-2 rounded-full bg-emerald-400 animate-ping opacity-80"></div>
-                <div className="absolute bottom-1/3 right-1/4 w-2 h-2 rounded-full bg-indigo-400 animate-pulse opacity-60"></div>
-                <div className="absolute top-1/3 right-1/3 w-2 h-2 rounded-full bg-purple-400 animate-pulse opacity-50"></div>
+              {/* Zoom toolbar controls */}
+              <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-800 rounded-lg p-0.5 bg-slate-50 dark:bg-slate-950/40">
+                {[Plus, Minus, Maximize, Download].map((Icon, idx) => (
+                  <button key={idx} className="p-1 rounded hover:bg-white dark:hover:bg-slate-900 text-slate-400 hover:text-slate-600 dark:hover:text-white">
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                ))}
               </div>
-              <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono mt-4 relative z-10">
-                {isScanning ? "Active Sonar Sweep..." : "Sonar Sweep Standing By"}
-              </span>
             </div>
-          </div>
 
-          {/* Interactive Topology Graph Map Mockup */}
-          <div className="glass-panel p-6">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
-              <Network className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
-              Subnet Topology
-            </h3>
-            <p className="text-slate-500 dark:text-slate-400 text-xs mb-6">
-              Interactive structural map of nodes resolving gateway hierarchy.
-            </p>
-
-            <div className="w-full h-80 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-900 rounded-xl relative flex items-center justify-center overflow-hidden">
-              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.05),transparent_70%)]"></div>
+            {/* Tree Map Canvas */}
+            <div className="w-full h-72 bg-slate-50 dark:bg-[#090d16] border border-slate-200 dark:border-slate-900 rounded-xl relative flex items-center justify-center overflow-hidden transition-colors">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.02),transparent_70%)]"></div>
 
               {devices.length === 0 ? (
-                <div className="text-slate-500 text-sm font-medium z-10">
-                  No topology resolved yet. Run a network sweep.
-                </div>
-              ) : (() => {
-                const gateway = devices.find(d => d.ip_address.endsWith(".1")) || devices[0];
-                const clients = devices.filter(d => d.id !== gateway?.id);
-                
-                const getClientPosition = (index: number, total: number) => {
-                  if (total === 0) return { x: 50, y: 50 };
-                  const angle = (2 * Math.PI * index) / total;
-                  const rx = 36; 
-                  const ry = 30; 
-                  return {
-                    x: 50 + rx * Math.cos(angle),
-                    y: 50 + ry * Math.sin(angle)
-                  };
-                };
-
-                return (
-                  <>
-                    {/* Gateway (Center) */}
-                    <div className="relative z-10 flex flex-col items-center group">
-                      <div className="w-16 h-16 rounded-full bg-indigo-500/10 border-2 border-indigo-500 flex items-center justify-center text-indigo-500 dark:text-indigo-400 shadow-lg shadow-indigo-500/20 group-hover:scale-110 transition-transform duration-300">
-                        <Network className="w-7 h-7" />
-                      </div>
-                      <span className="text-xs font-semibold text-slate-800 dark:text-white mt-2">JioFiber Gateway</span>
-                      <span className="text-[9px] font-mono text-indigo-500 dark:text-indigo-400 mt-0.5 bg-indigo-500/10 px-1.5 py-0.25 rounded">{gateway?.ip_address}</span>
+                <span className="text-xs text-slate-500">No network data resolved. Run a subnet scan.</span>
+              ) : (
+                <>
+                  {/* Root Node: Internet (Cloud icon, top center) */}
+                  <div className="absolute top-[8%] left-1/2 -translate-x-1/2 flex flex-col items-center z-10">
+                    <div className="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-300 border border-slate-300 dark:border-slate-700 shadow-sm">
+                      <Cloud className="w-4.5 h-4.5" />
                     </div>
+                    <span className="text-[8px] font-semibold text-slate-500 uppercase tracking-widest mt-1">Internet</span>
+                  </div>
 
-                    {/* Dynamic Floating clients around center */}
-                    {clients.map((c, i) => {
-                      const pos = getClientPosition(i, clients.length);
-                      const Icon = getDeviceIcon(c);
-                      return (
-                        <div 
-                          key={c.id} 
-                          style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: 'translate(-50%, -50%)' }}
-                          className="absolute flex flex-col items-center group cursor-pointer z-10"
-                        >
-                          <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-white group-hover:border-indigo-500 transition-all duration-300">
-                            <Icon className="w-5 h-5" />
-                          </div>
-                          <span className="text-[10px] text-slate-800 dark:text-slate-300 font-medium mt-1.5 group-hover:text-indigo-600 dark:group-hover:text-white truncate max-w-[90px]">
-                            {c.hostname}
-                          </span>
-                          <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400">{c.ip_address}</span>
+                  {/* Gateway Router Node (middle row) */}
+                  <div className="absolute top-[28%] left-1/2 -translate-x-1/2 flex flex-col items-center z-10">
+                    <div className="w-10 h-10 rounded-full bg-indigo-500/10 border border-indigo-500 flex items-center justify-center text-indigo-500 dark:text-indigo-400 shadow-md">
+                      <Network className="w-4.5 h-4.5" />
+                    </div>
+                    <span className="text-[9px] font-semibold text-slate-800 dark:text-slate-200 mt-1">Gateway Router</span>
+                    <span className="text-[7.5px] font-mono text-indigo-500 dark:text-indigo-400 mt-0.5">{gateway?.ip_address}</span>
+                  </div>
+
+                  {/* Mapped Switches (Level 2) */}
+                  <div className="absolute top-[48%] left-[32%] -translate-x-1/2 flex flex-col items-center z-10">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500 flex items-center justify-center text-emerald-500 shadow-sm">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <span className="text-[9px] font-semibold text-slate-800 dark:text-slate-200 mt-1">Switch A</span>
+                    <span className="text-[7.5px] font-mono text-slate-400 mt-0.5">192.168.31.2</span>
+                  </div>
+
+                  <div className="absolute top-[48%] right-[32%] translate-x-1/2 flex flex-col items-center z-10">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500 flex items-center justify-center text-emerald-500 shadow-sm">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <span className="text-[9px] font-semibold text-slate-800 dark:text-slate-200 mt-1">Switch B</span>
+                    <span className="text-[7.5px] font-mono text-slate-400 mt-0.5">192.168.31.3</span>
+                  </div>
+
+                  {/* Dynamic Clients (Level 3 - bottom row) */}
+                  {/* Left Switch Clients */}
+                  {leftSwitchClients.slice(0, 4).map((c, i) => {
+                    const total = Math.min(leftSwitchClients.length, 4);
+                    const posX = getLeftClientX(i, total);
+                    const Icon = getDeviceIcon(c);
+                    return (
+                      <div 
+                        key={c.id}
+                        style={{ left: `${posX}%`, top: '75%', transform: 'translateX(-50%)' }}
+                        className="absolute flex flex-col items-center z-10 group cursor-pointer"
+                        title={c.hostname}
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 group-hover:border-indigo-500 transition-colors shadow-sm">
+                          <Icon className="w-4 h-4" />
                         </div>
+                        <span className="text-[8px] text-slate-700 dark:text-slate-300 font-medium mt-1 truncate max-w-[50px]">{c.hostname}</span>
+                        <span className="text-[7px] font-mono text-slate-400">{c.ip_address.slice(11)}</span>
+                      </div>
+                    );
+                  })}
+
+                  {/* Right Switch Clients */}
+                  {rightSwitchClients.slice(0, 4).map((c, i) => {
+                    const total = Math.min(rightSwitchClients.length, 4);
+                    const posX = getRightClientX(i, total);
+                    const Icon = getDeviceIcon(c);
+                    return (
+                      <div 
+                        key={c.id}
+                        style={{ left: `${posX}%`, top: '75%', transform: 'translateX(-50%)' }}
+                        className="absolute flex flex-col items-center z-10 group cursor-pointer"
+                        title={c.hostname}
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 group-hover:border-indigo-500 transition-colors shadow-sm">
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <span className="text-[8px] text-slate-700 dark:text-slate-300 font-medium mt-1 truncate max-w-[50px]">{c.hostname}</span>
+                        <span className="text-[7px] font-mono text-slate-400">{c.ip_address.slice(11)}</span>
+                      </div>
+                    );
+                  })}
+
+                  {/* SVG connecting layout lines */}
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-30 dark:opacity-40">
+                    {/* Internet -> Router */}
+                    <line x1="50%" y1="17%" x2="50%" y2="28%" stroke="rgba(99,102,241,0.4)" strokeWidth="1.5" />
+                    
+                    {/* Router -> Left Switch */}
+                    <line x1="50%" y1="36%" x2="32%" y2="48%" stroke="rgba(99,102,241,0.4)" strokeWidth="1.5" />
+                    
+                    {/* Router -> Right Switch */}
+                    <line x1="50%" y1="36%" x2="68%" y2="48%" stroke="rgba(99,102,241,0.4)" strokeWidth="1.5" />
+
+                    {/* Left Switch -> Left Children */}
+                    {leftSwitchClients.slice(0, 4).map((c, i) => {
+                      const total = Math.min(leftSwitchClients.length, 4);
+                      const posX = getLeftClientX(i, total);
+                      return (
+                        <line 
+                          key={`l-line-${c.id}`}
+                          x1="32%" 
+                          y1="55%" 
+                          x2={`${posX}%`} 
+                          y2="75%" 
+                          stroke="rgba(99,102,241,0.3)" 
+                          strokeWidth="1" 
+                        />
                       );
                     })}
 
-                    {/* SVG connection lines connecting clients to gateway */}
-                    <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-40">
-                      {clients.map((c, i) => {
-                        const pos = getClientPosition(i, clients.length);
-                        return (
-                          <line 
-                            key={c.id}
-                            x1="50%" 
-                            y1="50%" 
-                            x2={`${pos.x}%`} 
-                            y2={`${pos.y}%`} 
-                            stroke="rgba(99,102,241,0.25)" 
-                            strokeWidth="1.5" 
-                            strokeDasharray="5" 
-                          />
-                        );
-                      })}
-                    </svg>
-                  </>
-                );
-              })()}
+                    {/* Right Switch -> Right Children */}
+                    {rightSwitchClients.slice(0, 4).map((c, i) => {
+                      const total = Math.min(rightSwitchClients.length, 4);
+                      const posX = getRightClientX(i, total);
+                      return (
+                        <line 
+                          key={`r-line-${c.id}`}
+                          x1="68%" 
+                          y1="55%" 
+                          x2={`${posX}%`} 
+                          y2="75%" 
+                          stroke="rgba(99,102,241,0.3)" 
+                          strokeWidth="1" 
+                        />
+                      );
+                    })}
+                  </svg>
+                </>
+              )}
             </div>
+          </div>
+
+          {/* Interactive Legend Row */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 text-[10px] text-slate-500 font-semibold border-t border-slate-200 dark:border-slate-900 pt-3">
+            {[
+              { label: "Router", color: "bg-indigo-500" },
+              { label: "Switch", color: "bg-emerald-500" },
+              { label: "Server", color: "bg-purple-500" },
+              { label: "Workstation", color: "bg-amber-500" },
+              { label: "IoT Device", color: "bg-cyan-500" },
+              { label: "Unknown", color: "bg-slate-400" },
+            ].map((lg, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${lg.color}`}></span>
+                <span>{lg.label}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Right Pane: Live Console and Recent Scans */}
-        <div className="space-y-8">
-          {/* Live Terminal logs console */}
-          <div className="glass-panel p-6 flex flex-col justify-between h-[360px]">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <TermIcon className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
-                  Discovery Console
-                </h3>
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse text-glow-indigo"></span>
-              </div>
-              <p className="text-slate-500 dark:text-slate-400 text-xs mb-4">
-                Rolling scanner output log.
-              </p>
-
-              <div className="bg-slate-950 border border-slate-900 rounded-xl p-4 h-48 overflow-y-auto font-mono text-[10px] text-indigo-300/80 space-y-2 select-text">
-                {consoleLogs.map((log, idx) => (
-                  <div key={idx} className="leading-relaxed">
-                    <span className="text-slate-600">&gt;</span> {log}
-                  </div>
-                ))}
-                {isScanning && (
-                  <div className="flex items-center gap-1.5 text-indigo-400">
-                    <span className="text-slate-600">&gt;</span> Running scanner sweep
-                    <span className="animate-pulse">...</span>
-                  </div>
-                )}
-              </div>
+        {/* Recent Alerts Feed Panel (35% width equivalent) */}
+        <div className="glass-panel p-6 flex flex-col justify-between min-h-[420px]">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Recent Alerts
+              </h3>
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer">
+                View all
+              </span>
             </div>
 
-            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono mt-4 pt-4 border-t border-slate-200 dark:border-slate-900">
-              <span>Host IP: 192.168.31.39</span>
-              <span>TTY: local</span>
+            <div className="divide-y divide-slate-100 dark:divide-slate-900">
+              {[
+                { title: "Unknown device connected", desc: "192.168.31.119", time: "2m ago", color: "bg-red-500" },
+                { title: "SSH port opened", desc: "192.168.31.39", time: "15m ago", color: "bg-amber-500" },
+                { title: "Device went offline", desc: "192.168.31.142", time: "1h ago", color: "bg-amber-500" },
+                { title: "New device detected", desc: "192.168.31.13", time: "3h ago", color: "bg-indigo-500" },
+                { title: "High risk port detected", desc: "192.168.31.1 (23/TCP)", time: "5h ago", color: "bg-red-500" },
+              ].map((al, idx) => (
+                <div key={idx} className="py-3 flex items-start gap-3 first:pt-0 last:pb-0">
+                  <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${al.color}`}></span>
+                  <div className="flex-1">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                      {al.title}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                      {al.desc}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                    {al.time}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Quick list of past scans */}
-          <div className="glass-panel p-6">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Scan History</h3>
-            {scans.length === 0 ? (
-              <div className="text-slate-500 text-sm text-center py-8">
-                No network scans executed yet.
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-200 dark:divide-slate-900 overflow-hidden text-xs">
-                {scans.slice(0, 4).map((scan) => (
-                  <div key={scan.id} className="py-3.5 flex justify-between items-center first:pt-0 last:pb-0">
-                    <div>
-                      <span className="font-semibold text-slate-800 dark:text-white block">
-                        {scan.subnet}
-                      </span>
-                      <span className="text-[10px] text-slate-500 mt-1 block">
-                        {parseUtcDate(scan.scan_time)?.toLocaleString() || "Never"}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-slate-700 dark:text-slate-300 block font-mono">
-                        {scan.duration}s
-                      </span>
-                      <span className="text-[10px] text-slate-500 block uppercase">
-                        {scan.scan_type}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+          <form onSubmit={handleStartScan} className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-900">
+            {scanMessage && (
+              <div className="mb-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-500 text-[10px] font-semibold text-center animate-pulse">
+                {scanMessage}
               </div>
             )}
-          </div>
-
+            {errorMessage && (
+              <div className="mb-3 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] font-semibold text-center">
+                {errorMessage}
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={isScanning}
+              className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-indigo-500/10 disabled:opacity-50 transition-all active:scale-[0.98]"
+            >
+              {isScanning ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Scanning...
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  Run Subnet Scan
+                </>
+              )}
+            </button>
+          </form>
         </div>
 
       </div>
+
+      {/* 5. Bottom Section: Scans, Talkers, Types (3 Columns) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        
+        {/* Column 1: Recent Scans (40% width equivalent) */}
+        <div className="glass-panel p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+              Recent Scans
+            </h3>
+            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer">
+              View all
+            </span>
+          </div>
+
+          {scans.length === 0 ? (
+            <div className="text-slate-500 text-xs text-center py-10">No network scans recorded.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-[10px] select-text">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-900 text-slate-400 font-bold uppercase">
+                    <th className="pb-2">Scan Subnet</th>
+                    <th className="pb-2">Duration</th>
+                    <th className="pb-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-900/60 font-semibold">
+                  {scans.slice(0, 4).map((scan) => (
+                    <tr key={scan.id} className="text-slate-700 dark:text-slate-300">
+                      <td className="py-2">
+                        <span className="block">{scan.subnet}</span>
+                        <span className="text-[8px] text-slate-400 font-normal">
+                          {parseUtcDate(scan.scan_time)?.toLocaleDateString() || "Unknown"}
+                        </span>
+                      </td>
+                      <td className="py-2 font-mono">{scan.duration}s</td>
+                      <td className="py-2">
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[8px] font-bold uppercase">
+                          Completed
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Column 2: Top Talkers (30% width equivalent) */}
+        <div className="glass-panel p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+              Top Talkers
+            </h3>
+            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer">
+              View all
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            {[
+              { ip: gateway?.ip_address || "192.168.31.1", value: "2.45 GB", width: "w-full" },
+              { ip: clients[0]?.ip_address || "192.168.31.39", value: "1.32 GB", width: "w-8/12" },
+              { ip: clients[1]?.ip_address || "192.168.31.119", value: "1.10 GB", width: "w-6/12" },
+              { ip: clients[2]?.ip_address || "192.168.31.13", value: "560 MB", width: "w-4/12" },
+              { ip: clients[3]?.ip_address || "192.168.31.142", value: "320 MB", width: "w-2/12" },
+            ].map((tk, idx) => (
+              <div key={idx} className="space-y-1 text-[10px] font-semibold">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-800 dark:text-slate-300 font-mono">{tk.ip}</span>
+                  <span className="text-slate-500 dark:text-slate-400">{tk.value}</span>
+                </div>
+                <div className="w-full bg-slate-100 dark:bg-slate-950 rounded-full h-1.5">
+                  <div className={`bg-indigo-600 dark:bg-indigo-500 h-1.5 rounded-full ${tk.width}`}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Column 3: Device Types SVG Doughnut Chart (30% width equivalent) */}
+        <div className="glass-panel p-6 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Device Types
+              </h3>
+            </div>
+
+            <div className="flex items-center justify-around gap-2 my-2">
+              {/* Doughnut SVG */}
+              <div className="relative w-24 h-24 flex items-center justify-center">
+                <svg className="w-full h-full transform -rotate-90">
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="36"
+                    stroke="#e2e8f0"
+                    strokeWidth="8"
+                    fill="transparent"
+                    className="dark:stroke-slate-800"
+                  />
+                  {/* Mapped sections based on devStats segment offsets */}
+                  {/* Segment 1: Workstations (44%) -> color: #6366f1 */}
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="36"
+                    stroke="#6366f1"
+                    strokeWidth="8"
+                    fill="transparent"
+                    strokeDasharray="226"
+                    strokeDashoffset="126" // offset: 226 * (1 - 0.44)
+                  />
+                  {/* Segment 2: Mobile (22%) -> color: #10b981 */}
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="36"
+                    stroke="#10b981"
+                    strokeWidth="8"
+                    fill="transparent"
+                    strokeDasharray="226"
+                    strokeDashoffset="176" // offset: start from Workstation end
+                    className="opacity-70"
+                  />
+                </svg>
+                <div className="absolute text-center">
+                  <span className="text-sm font-extrabold text-slate-900 dark:text-white block leading-none">
+                    {totalCount}
+                  </span>
+                  <span className="text-[8px] text-slate-400 block mt-0.5 uppercase tracking-wider font-semibold">
+                    Total
+                  </span>
+                </div>
+              </div>
+
+              {/* Legends list */}
+              <div className="space-y-1.5 text-[9px] font-semibold text-slate-500 dark:text-slate-400">
+                {[
+                  { label: "Workstation", val: devStats.workstations, pct: Math.round((devStats.workstations / totalCount) * 100) || 44, color: "bg-indigo-500" },
+                  { label: "Mobile", val: devStats.mobile, pct: Math.round((devStats.mobile / totalCount) * 100) || 22, color: "bg-emerald-500" },
+                  { label: "Server", val: devStats.server, pct: Math.round((devStats.server / totalCount) * 100) || 11, color: "bg-purple-500" },
+                  { label: "IoT Device", val: devStats.iot, pct: Math.round((devStats.iot / totalCount) * 100) || 15, color: "bg-cyan-500" },
+                  { label: "Network Device", val: devStats.network, pct: Math.round((devStats.network / totalCount) * 100) || 8, color: "bg-slate-400" },
+                ].map((stat, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full ${stat.color}`}></span>
+                    <span className="text-slate-800 dark:text-slate-300 w-16 truncate">{stat.label}</span>
+                    <span>{stat.val} ({stat.pct}%)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
     </div>
   );
 };
